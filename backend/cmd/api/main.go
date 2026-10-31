@@ -1,35 +1,21 @@
 package main
 
 import (
-	"errors"
-	"log"
-	"net/http"
-	"os"
-	"time"
+    "fmt"
+    "log"
 
-	"tracking-system/config"
-	"tracking-system/internal/router"
+    "tracking-system/config"
 )
 
 func main() {
-	if err := config.ConnectDB(); err != nil {
-		log.Fatal("database connection failed: ", err)
-	}
-	defer config.DB.Close()
+    // Connect to PostgreSQL
+    err := config.ConnectDB()
+    if err != nil {
+        log.Fatal("Database connection failed: ", err)
+    }
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+    // Close database connection when application exits
+    defer config.DB.Close()
 
-	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           router.New(),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-
-	log.Printf("API server listening on :%s", port)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal("API server failed: ", err)
-	}
+    fmt.Println("Backend is running!")
 }
