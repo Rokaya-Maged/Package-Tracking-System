@@ -2,7 +2,7 @@ package orders
 
 import "time"
 
-type OrderSummary struct {
+type Order struct {
 	ID              int64     `json:"id"`
 	CustomerID      int64     `json:"customer_id"`
 	PickupAddress   string    `json:"pickup_address"`

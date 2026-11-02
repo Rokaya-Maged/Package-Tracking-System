@@ -1,21 +1,38 @@
 package main
 
 import (
-    "fmt"
     "log"
+    "net/http"
 
     "tracking-system/config"
+    "tracking-system/internal/orders"
+    "tracking-system/internal/router"
 )
 
 func main() {
-    // Connect to PostgreSQL
+
+    // Connect to Database
     err := config.ConnectDB()
     if err != nil {
         log.Fatal("Database connection failed: ", err)
     }
-
-    // Close database connection when application exits
     defer config.DB.Close()
 
-    fmt.Println("Backend is running!")
+    // Create Orders Repository
+    orderRepo := &orders.OrderRepository{
+        DB: config.DB,
+    }
+    // Create Orders Service
+    orderService := &orders.OrderService{
+        Repo: orderRepo,
+    }
+
+
+    // Create Main Router
+    handler := router.New(orderService)
+
+    // Start Server
+    log.Println("Backend is running on http://localhost:8080")
+
+    log.Fatal(http.ListenAndServe(":8080", handler))
 }

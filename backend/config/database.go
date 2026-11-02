@@ -17,29 +17,16 @@ var DB *pgxpool.Pool
 func ConnectDB() error {
 
 	// 1. Load environment variables from .env
-	if err := godotenv.Load("../../.env"); err != nil {
+	if err := godotenv.Load(".env"); err != nil {
 		return fmt.Errorf("error loading .env file: %w", err)
 	}
 
 	// 2. Read database configuration
-	host := os.Getenv("DB_HOST")
-	port := os.Getenv("DB_PORT")
-	user := os.Getenv("DB_USER")
-	password := os.Getenv("DB_PASSWORD")
-	dbname := os.Getenv("DB_NAME")
-	sslmode := os.Getenv("DB_SSLMODE")
+	connStr := os.Getenv("DATABASE_URL")
 
-	// 3. Check required environment variables
-	if host == "" || port == "" || user == "" ||
-		password == "" || dbname == "" || sslmode == "" {
-		return fmt.Errorf("missing database environment variables")
+	if connStr == "" {
+		return fmt.Errorf("missing DATABASE_URL")
 	}
-
-	// 4. Create connection string
-	connStr := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		user, password, host, port, dbname, sslmode,
-	)
 
 	// 5. Set connection timeout
 	ctx, cancel := context.WithTimeout(
