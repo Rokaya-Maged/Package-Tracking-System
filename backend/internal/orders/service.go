@@ -3,8 +3,6 @@ package orders
 import (
 	"database/sql"
 	"errors"
-	"fmt"
-	"strings"
 )
 
 type OrderService struct {
@@ -12,9 +10,11 @@ type OrderService struct {
 }
 
 var (
-	ErrOrderNotFound      = errors.New("order not found")
-	ErrInvalidOrderData   = errors.New("invalid order data")
-	ErrInvalidOrderStatus = errors.New("invalid order status")
+	ErrOrderNotFound        = errors.New("order not found")
+	ErrInvalidOrderData     = errors.New("invalid order data")
+	ErrInvalidOrderStatus   = errors.New("invalid order status")
+	ErrBusinessUserNotFound = errors.New("business user does not exist")
+	ErrTrackingNumberExists = errors.New("tracking number already exists")
 )
 
 // get all order
@@ -43,20 +43,8 @@ func (s *OrderService) GetOrderByID(id int) (*Order, error) {
 
 // create order
 func (s *OrderService) AddOrder(order *Order) error {
-	if order == nil {
-		return fmt.Errorf("%w: order cannot be nil", ErrInvalidOrderData)
-	}
-
-	if order.CustomerID <= 0 {
-		return fmt.Errorf("%w: invalid customer ID", ErrInvalidOrderData)
-	}
-
-	if strings.TrimSpace(order.DeliveryAddress) == "" {
-		return fmt.Errorf("%w: delivery address is required", ErrInvalidOrderData)
-	}
-
-	if strings.TrimSpace(order.PickupAddress) == "" {
-		return fmt.Errorf("%w: pickup address is required", ErrInvalidOrderData)
+	if err := ValidateAddOrder(order); err != nil {
+		return err
 	}
 
 	return s.Repo.CreateOrder(order)
@@ -72,6 +60,7 @@ func (s *OrderService) UpdateOrderStatus(id int, status string) error {
 		"Picked Up":  true,
 		"In Transit": true,
 		"Delivered":  true,
+		"cancelled":  true,
 	}
 
 	if !validStatuses[status] {

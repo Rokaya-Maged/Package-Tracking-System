@@ -3,7 +3,9 @@ package orders
 import (
 	"context"
 	"database/sql"
+	"errors"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -11,19 +13,36 @@ type OrderRepository struct {
 	DB *pgxpool.Pool
 }
 
+type orderScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanOrder(row orderScanner) (Order, error) {
+	var order Order
+	err := row.Scan(
+		&order.ID, &order.TrackingNumber, &order.BusinessUserID,
+		&order.CustomerName, &order.CustomerPhone, &order.PickupAddress,
+		&order.DropoffAddress, &order.DeliveryNotes, &order.PackageDescription,
+		&order.PackageWeightKg, &order.PreferredDeliveryAt, &order.ItemPrice,
+		&order.DeliveryFee, &order.DeliveryFeePayer, &order.PaymentType,
+		&order.TotalCustomerPrice, &order.CODAmount, &order.CODCollectedAt,
+		&order.Status, &order.CreatedAt, &order.UpdatedAt,
+	)
+	return order, err
+}
+
 // get all order
 func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 	query := `
-		SELECT id, customer_id, status, total_price, delivery_address, pickup_address, created_at
-		FROM orders
-		ORDER BY id
-	`
-	rows, err := r.DB.Query(context.Background(), query)
+        SELECT id, tracking_number, customer_name, customer_phone, pickup_address, dropoff_address, status, created_at
+        FROM orders
+        ORDER BY id
+    `
 
+	rows, err := r.DB.Query(context.Background(), query)
 	if err != nil {
 		return nil, err
 	}
-
 	defer rows.Close()
 
 	var orders []Order
@@ -33,11 +52,12 @@ func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 
 		err := rows.Scan(
 			&order.ID,
-			&order.CustomerID,
-			&order.Status,
-			// &order.TotalPrice,
-			&order.DeliveryAddress,
+			&order.TrackingNumber,
+			&order.CustomerName,
+			&order.CustomerPhone,
 			&order.PickupAddress,
+			&order.DropoffAddress,
+			&order.Status,
 			&order.CreatedAt,
 		)
 
@@ -58,7 +78,7 @@ func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 // get order by id
 func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 	query := `
-		SELECT id, customer_id, status, total_price, delivery_address, pickup_address, created_at
+        SELECT id, tracking_number, customer_name, customer_phone, pickup_address, dropoff_address, status, created_at
 		FROM orders
 		WHERE orders.id = $1
 	`
@@ -67,14 +87,14 @@ func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 
 	err := r.DB.QueryRow(context.Background(), query, id).Scan(
 		&order.ID,
-		&order.CustomerID,
-		&order.Status,
-		// &order.TotalPrice,
-		&order.DeliveryAddress,
+		&order.TrackingNumber,
+		&order.CustomerName,
+		&order.CustomerPhone,
 		&order.PickupAddress,
+		&order.DropoffAddress,
+		&order.Status,
 		&order.CreatedAt,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -85,29 +105,68 @@ func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 // create new order
 func (r *OrderRepository) CreateOrder(order *Order) error {
 	query := `
-		INSERT INTO orders (customer_id, status, total_price, delivery_address, pickup_address)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, created_at
-	`
+        INSERT INTO orders (
+            tracking_number, business_user_id, customer_name, customer_phone,
+            pickup_address, dropoff_address, delivery_notes, package_description,
+            package_weight_kg, preferred_delivery_at, item_price, delivery_fee,
+            delivery_fee_payer, payment_type
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10, $11, $12, $13, $14
+        )
+        RETURNING id, total_customer_price, cod_amount, status, created_at, updated_at
+    `
 
-	return r.DB.QueryRow(context.Background(), query,
-		order.CustomerID,
-		order.Status,
-		// order.TotalPrice,
-		order.DeliveryAddress,
+	err := r.DB.QueryRow(context.Background(), query,
+		order.TrackingNumber,
+		order.BusinessUserID,
+		order.CustomerName,
+		order.CustomerPhone,
 		order.PickupAddress,
-	).Scan(&order.ID, &order.CreatedAt)
+		order.DropoffAddress,
+		order.DeliveryNotes,
+		order.PackageDescription,
+		order.PackageWeightKg,
+		order.PreferredDeliveryAt,
+		order.ItemPrice,
+		order.DeliveryFee,
+		order.DeliveryFeePayer,
+		order.PaymentType,
+	).Scan(
+		&order.ID,
+		&order.TotalCustomerPrice,
+		&order.CODAmount,
+		&order.Status,
+		&order.CreatedAt,
+		&order.UpdatedAt,
+	)
 
+	if err != nil {
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) {
+			if pgErr.Code == "23503" && pgErr.ConstraintName == "orders_business_user_id_fkey" {
+				return ErrBusinessUserNotFound
+			}
+
+			if pgErr.Code == "23505" && pgErr.ConstraintName == "orders_tracking_number_key" {
+				return ErrTrackingNumberExists
+			}
+		}
+		return err
+	}
+
+	return nil
 }
 
 // Update order status
 func (r *OrderRepository) UpdateOrderStatus(id int, status string) error {
 	query := `
 		UPDATE orders
-		SET status = $1
+		SET status = $1, updated_at = NOW()
 		WHERE id = $2
 	`
-
 	result, err := r.DB.Exec(context.Background(), query, status, id)
 	if err != nil {
 		return err

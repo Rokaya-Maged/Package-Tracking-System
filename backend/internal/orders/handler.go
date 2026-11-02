@@ -68,12 +68,19 @@ func (h *OrderHandler) CreateOrderHandler(res http.ResponseWriter, req *http.Req
 
 	err = h.Service.AddOrder(&order)
 	if err != nil {
-		if errors.Is(err, ErrInvalidOrderData) {
+		switch {
+		case errors.Is(err, ErrBusinessUserNotFound):
 			http.Error(res, err.Error(), http.StatusBadRequest)
-			return
-		}
 
-		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		case errors.Is(err, ErrTrackingNumberExists):
+			http.Error(res, err.Error(), http.StatusConflict)
+
+		case errors.Is(err, ErrInvalidOrderData):
+			http.Error(res, err.Error(), http.StatusBadRequest)
+
+		default:
+			http.Error(res, "Internal server error", http.StatusInternalServerError)
+		}
 		return
 	}
 
