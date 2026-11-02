@@ -1,13 +1,5 @@
 .env
-
-# Go build files
-*.exe
 /bin/
-/build/
-
-# IDEs and editors
-.vscode/
-.idea/
-*.swp
-*.swo
-
+/dist/
+*.exe
+*.test
