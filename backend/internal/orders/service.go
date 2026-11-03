@@ -57,12 +57,14 @@ func (s *OrderService) UpdateOrderStatus(id int, status string) error {
 	}
 
 	validStatuses := map[string]bool{
-		"Picked Up":  true,
-		"In Transit": true,
-		"Delivered":  true,
+		"pending":    true,
+		"assigned":   true,
+		"picked_up":  true,
+		"in_transit": true,
+		"delivered":  true,
 		"cancelled":  true,
 	}
-
+	
 	if !validStatuses[status] {
 		return ErrInvalidOrderStatus
 	}

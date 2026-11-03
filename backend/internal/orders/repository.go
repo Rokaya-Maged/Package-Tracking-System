@@ -17,20 +17,6 @@ type orderScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanOrder(row orderScanner) (Order, error) {
-	var order Order
-	err := row.Scan(
-		&order.ID, &order.TrackingNumber, &order.BusinessUserID,
-		&order.CustomerName, &order.CustomerPhone, &order.PickupAddress,
-		&order.DropoffAddress, &order.DeliveryNotes, &order.PackageDescription,
-		&order.PackageWeightKg, &order.PreferredDeliveryAt, &order.ItemPrice,
-		&order.DeliveryFee, &order.DeliveryFeePayer, &order.PaymentType,
-		&order.TotalCustomerPrice, &order.CODAmount, &order.CODCollectedAt,
-		&order.Status, &order.CreatedAt, &order.UpdatedAt,
-	)
-	return order, err
-}
-
 // get all order
 func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 	query := `
