@@ -20,7 +20,11 @@ type orderScanner interface {
 // get all order
 func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 	query := `
-        SELECT id, tracking_number, customer_name, customer_phone, pickup_address, dropoff_address, status, created_at
+        SELECT id, tracking_number, business_user_id, customer_name, customer_phone,
+               pickup_address, dropoff_address, delivery_notes, package_description,
+               package_weight_kg, preferred_delivery_at, item_price, delivery_fee,
+               delivery_fee_payer, payment_type, total_customer_price, cod_amount,
+               cod_collected_at, status, created_at, updated_at
         FROM orders
         ORDER BY id
     `
@@ -39,12 +43,25 @@ func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 		err := rows.Scan(
 			&order.ID,
 			&order.TrackingNumber,
+			&order.BusinessUserID,
 			&order.CustomerName,
 			&order.CustomerPhone,
 			&order.PickupAddress,
 			&order.DropoffAddress,
+			&order.DeliveryNotes,
+			&order.PackageDescription,
+			&order.PackageWeightKg,
+			&order.PreferredDeliveryAt,
+			&order.ItemPrice,
+			&order.DeliveryFee,
+			&order.DeliveryFeePayer,
+			&order.PaymentType,
+			&order.TotalCustomerPrice,
+			&order.CODAmount,
+			&order.CODCollectedAt,
 			&order.Status,
 			&order.CreatedAt,
+			&order.UpdatedAt,
 		)
 
 		if err != nil {
@@ -64,7 +81,11 @@ func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 // get order by id
 func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 	query := `
-        SELECT id, tracking_number, customer_name, customer_phone, pickup_address, dropoff_address, status, created_at
+        SELECT id, tracking_number, business_user_id, customer_name, customer_phone,
+               pickup_address, dropoff_address, delivery_notes, package_description,
+               package_weight_kg, preferred_delivery_at, item_price, delivery_fee,
+               delivery_fee_payer, payment_type, total_customer_price, cod_amount,
+               cod_collected_at, status, created_at, updated_at
 		FROM orders
 		WHERE orders.id = $1
 	`
@@ -74,12 +95,25 @@ func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 	err := r.DB.QueryRow(context.Background(), query, id).Scan(
 		&order.ID,
 		&order.TrackingNumber,
+		&order.BusinessUserID,
 		&order.CustomerName,
 		&order.CustomerPhone,
 		&order.PickupAddress,
 		&order.DropoffAddress,
+		&order.DeliveryNotes,
+		&order.PackageDescription,
+		&order.PackageWeightKg,
+		&order.PreferredDeliveryAt,
+		&order.ItemPrice,
+		&order.DeliveryFee,
+		&order.DeliveryFeePayer,
+		&order.PaymentType,
+		&order.TotalCustomerPrice,
+		&order.CODAmount,
+		&order.CODCollectedAt,
 		&order.Status,
 		&order.CreatedAt,
+		&order.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
