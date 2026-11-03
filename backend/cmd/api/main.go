@@ -52,6 +52,7 @@ func main() {
 		orderService,
 		assignmentService,
 		courierService,
+		nil,
 	)
 
 	// Start Server
