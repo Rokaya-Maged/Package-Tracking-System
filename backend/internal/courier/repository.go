@@ -10,13 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var (
-	ErrNotFound          = errors.New("assignment or order not found")
-	ErrInvalidAssignment = errors.New("assignment is not pending")
-	ErrInvalidTransition = errors.New("invalid order status transition")
-	ErrNotAccepted       = errors.New("assignment has not been accepted")
-)
-
 type Repository struct {
 	DB *pgxpool.Pool
 }
@@ -25,8 +18,9 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{DB: db}
 }
 
-// GetAssignedOrders returns pending and accepted assignments
-// belonging to the authenticated courier.
+// GetAssignedOrders returns orders assigned to the specified courier.
+// Pending assignments can be accepted or declined.
+// Accepted assignments can proceed through delivery.
 func (r *Repository) GetAssignedOrders(
 	ctx context.Context,
 	courierID int64,
@@ -43,10 +37,14 @@ func (r *Repository) GetAssignedOrders(
 			o.delivery_notes,
 			o.package_description,
 			o.package_weight_kg,
-			o.payment_type,
-			o.cod_amount,
-			o.delivery_fee,
 			o.preferred_delivery_at,
+			o.item_price,
+			o.delivery_fee,
+			o.delivery_fee_payer,
+			o.payment_type,
+			o.total_customer_price,
+			o.cod_amount,
+			o.cod_collected_at,
 			o.status,
 			ca.id,
 			ca.status,
@@ -54,13 +52,19 @@ func (r *Repository) GetAssignedOrders(
 		FROM courier_assignments ca
 		INNER JOIN orders o ON o.id = ca.order_id
 		WHERE ca.courier_id = $1
-		  AND ca.status IN ('pending', 'accepted')
+		  AND ca.status IN ($2, $3)
 		ORDER BY ca.assigned_at DESC
 	`
 
-	rows, err := r.DB.Query(ctx, query, courierID)
+	rows, err := r.DB.Query(
+		ctx,
+		query,
+		courierID,
+		AssignmentPending,
+		AssignmentAccepted,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("get courier assignments: %w", err)
+		return nil, fmt.Errorf("get assigned orders: %w", err)
 	}
 	defer rows.Close()
 
@@ -79,32 +83,35 @@ func (r *Repository) GetAssignedOrders(
 			&order.DeliveryNotes,
 			&order.PackageDescription,
 			&order.PackageWeightKG,
-			&order.PaymentType,
-			&order.CODAmount,
-			&order.DeliveryFee,
 			&order.PreferredDeliveryAt,
+			&order.ItemPrice,
+			&order.DeliveryFee,
+			&order.DeliveryFeePayer,
+			&order.PaymentType,
+			&order.TotalCustomerPrice,
+			&order.CODAmount,
+			&order.CODCollectedAt,
 			&order.OrderStatus,
 			&order.AssignmentID,
 			&order.AssignmentStatus,
 			&order.AssignedAt,
 		)
-
 		if err != nil {
-			return nil, fmt.Errorf("scan courier assignment: %w", err)
+			return nil, fmt.Errorf("scan assigned order: %w", err)
 		}
 
 		orders = append(orders, order)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate courier assignments: %w", err)
+		return nil, fmt.Errorf("iterate assigned orders: %w", err)
 	}
 
 	return orders, nil
 }
 
-// GetOrderDetails returns shipment information only if the
-// order is assigned to this courier and the assignment is active.
+// GetOrderDetails returns a specific order only if it is assigned
+// to the authenticated courier and its assignment is still active.
 func (r *Repository) GetOrderDetails(
 	ctx context.Context,
 	courierID int64,
@@ -122,10 +129,14 @@ func (r *Repository) GetOrderDetails(
 			o.delivery_notes,
 			o.package_description,
 			o.package_weight_kg,
-			o.payment_type,
-			o.cod_amount,
-			o.delivery_fee,
 			o.preferred_delivery_at,
+			o.item_price,
+			o.delivery_fee,
+			o.delivery_fee_payer,
+			o.payment_type,
+			o.total_customer_price,
+			o.cod_amount,
+			o.cod_collected_at,
 			o.status,
 			ca.id,
 			ca.status,
@@ -133,8 +144,8 @@ func (r *Repository) GetOrderDetails(
 		FROM courier_assignments ca
 		INNER JOIN orders o ON o.id = ca.order_id
 		WHERE ca.courier_id = $1
-		  AND o.id = $2
-		  AND ca.status IN ('pending', 'accepted')
+		  AND ca.order_id = $2
+		  AND ca.status IN ($3, $4)
 	`
 
 	var order CourierAssignedOrder
@@ -144,6 +155,8 @@ func (r *Repository) GetOrderDetails(
 		query,
 		courierID,
 		orderID,
+		AssignmentPending,
+		AssignmentAccepted,
 	).Scan(
 		&order.OrderID,
 		&order.TrackingNumber,
@@ -154,10 +167,14 @@ func (r *Repository) GetOrderDetails(
 		&order.DeliveryNotes,
 		&order.PackageDescription,
 		&order.PackageWeightKG,
-		&order.PaymentType,
-		&order.CODAmount,
-		&order.DeliveryFee,
 		&order.PreferredDeliveryAt,
+		&order.ItemPrice,
+		&order.DeliveryFee,
+		&order.DeliveryFeePayer,
+		&order.PaymentType,
+		&order.TotalCustomerPrice,
+		&order.CODAmount,
+		&order.CODCollectedAt,
 		&order.OrderStatus,
 		&order.AssignmentID,
 		&order.AssignmentStatus,
@@ -167,9 +184,8 @@ func (r *Repository) GetOrderDetails(
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-
 	if err != nil {
-		return nil, fmt.Errorf("get courier order details: %w", err)
+		return nil, fmt.Errorf("get order details: %w", err)
 	}
 
 	return &order, nil
@@ -177,7 +193,8 @@ func (r *Repository) GetOrderDetails(
 
 // RespondToAssignment accepts or declines a pending assignment.
 //
-// The assignment row is locked to prevent concurrent responses.
+// The assignment and order are locked to prevent concurrent responses
+// and to prevent accepting an assignment for a cancelled/completed order.
 func (r *Repository) RespondToAssignment(
 	ctx context.Context,
 	courierID int64,
@@ -185,54 +202,58 @@ func (r *Repository) RespondToAssignment(
 	newStatus string,
 ) error {
 
-	if newStatus != AssignmentAccepted &&
-		newStatus != AssignmentDeclined {
-		return ErrInvalidAssignment
-	}
-
 	tx, err := r.DB.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin assignment transaction: %w", err)
+		return fmt.Errorf("begin assignment response transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	var assignmentID int64
-	var currentStatus string
+	var currentAssignmentStatus string
+	var orderStatus string
 
-	err = tx.QueryRow(ctx, `
-		SELECT id, status
-		FROM courier_assignments
-		WHERE order_id = $1
-		  AND courier_id = $2
-		FOR UPDATE
-	`, orderID, courierID).Scan(
+	query := `
+		SELECT ca.id, ca.status, o.status
+		FROM courier_assignments ca
+		INNER JOIN orders o ON o.id = ca.order_id
+		WHERE ca.order_id = $1
+		  AND ca.courier_id = $2
+		FOR UPDATE OF ca, o
+	`
+
+	err = tx.QueryRow(ctx, query, orderID, courierID).Scan(
 		&assignmentID,
-		&currentStatus,
+		&currentAssignmentStatus,
+		&orderStatus,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-
 	if err != nil {
-		return fmt.Errorf("find courier assignment: %w", err)
+		return fmt.Errorf("lock assignment: %w", err)
 	}
 
-	if currentStatus != AssignmentPending {
+	if currentAssignmentStatus != AssignmentPending {
 		return ErrInvalidAssignment
 	}
 
-	// Only the assignment status is changed here.
-	// The order status remains "assigned".
-	_, err = tx.Exec(ctx, `
+	if orderStatus != OrderAssigned {
+		return ErrOrderNotAssignable
+	}
+
+	updateQuery := `
 		UPDATE courier_assignments
 		SET status = $1,
 		    responded_at = NOW()
 		WHERE id = $2
-	`, newStatus, assignmentID)
+	`
 
+	_, err = tx.Exec(ctx, updateQuery, newStatus, assignmentID)
 	if err != nil {
-		return fmt.Errorf("update assignment response: %w", err)
+		return fmt.Errorf("respond to assignment: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -242,11 +263,10 @@ func (r *Repository) RespondToAssignment(
 	return nil
 }
 
-// UpdateCourierOrderStatus updates an order only when the
-// courier has an accepted assignment.
+// UpdateCourierOrderStatus updates an order's delivery status
+// and records the change in order_status_history.
 //
-// Updating the order and inserting its history record are
-// performed in the same transaction.
+// Only the courier with an accepted assignment can update the order.
 func (r *Repository) UpdateCourierOrderStatus(
 	ctx context.Context,
 	courierID int64,
@@ -257,55 +277,56 @@ func (r *Repository) UpdateCourierOrderStatus(
 
 	tx, err := r.DB.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin status transaction: %w", err)
+		return fmt.Errorf("begin status update transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	var oldStatus string
 
-	// Lock both the order and its accepted assignment.
-	err = tx.QueryRow(ctx, `
+	query := `
 		SELECT o.status
 		FROM orders o
-		INNER JOIN courier_assignments ca
-			ON ca.order_id = o.id
+		INNER JOIN courier_assignments ca ON ca.order_id = o.id
 		WHERE o.id = $1
 		  AND ca.courier_id = $2
-		  AND ca.status = 'accepted'
+		  AND ca.status = $3
 		FOR UPDATE OF o, ca
-	`, orderID, courierID).Scan(&oldStatus)
+	`
+
+	err = tx.QueryRow(
+		ctx,
+		query,
+		orderID,
+		courierID,
+		AssignmentAccepted,
+	).Scan(&oldStatus)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-
 	if err != nil {
-		return fmt.Errorf("verify courier assignment: %w", err)
+		return fmt.Errorf("get order status: %w", err)
 	}
 
-	if !isValidTransition(oldStatus, newStatus) {
-		return ErrInvalidTransition
+	if err := ValidateStatusTransition(oldStatus, newStatus); err != nil {
+		return err
 	}
 
-	// Update the shipment status.
-	result, err := tx.Exec(ctx, `
+	updateQuery := `
 		UPDATE orders
 		SET status = $1,
 		    updated_at = NOW()
 		WHERE id = $2
-		  AND status = $3
-	`, newStatus, orderID, oldStatus)
+	`
 
+	_, err = tx.Exec(ctx, updateQuery, newStatus, orderID)
 	if err != nil {
-		return fmt.Errorf("update shipment status: %w", err)
+		return fmt.Errorf("update order status: %w", err)
 	}
 
-	if result.RowsAffected() != 1 {
-		return ErrInvalidTransition
-	}
-
-	// Insert the status history record.
-	_, err = tx.Exec(ctx, `
+	historyQuery := `
 		INSERT INTO order_status_history (
 			order_id,
 			old_status,
@@ -314,14 +335,23 @@ func (r *Repository) UpdateCourierOrderStatus(
 			notes
 		)
 		VALUES ($1, $2, $3, $4, NULLIF($5, ''))
-	`, orderID, oldStatus, newStatus, courierID, notes)
+	`
 
+	_, err = tx.Exec(
+		ctx,
+		historyQuery,
+		orderID,
+		oldStatus,
+		newStatus,
+		courierID,
+		notes,
+	)
 	if err != nil {
 		return fmt.Errorf("insert order status history: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit shipment status transaction: %w", err)
+		return fmt.Errorf("commit order status update: %w", err)
 	}
 
 	return nil

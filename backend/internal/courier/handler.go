@@ -7,115 +7,63 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
-type UserIDResolver func(r *http.Request) (int64, error)
+type UserIDResolver func(*http.Request) (int64, error)
 
 type Handler struct {
-	service   *Service
-	getUserID UserIDResolver
+	Service       *Service
+	ResolveUserID UserIDResolver
 }
 
-func NewHandler(
-	service *Service,
-	resolver UserIDResolver,
-) *Handler {
+func NewHandler(service *Service, resolver UserIDResolver) *Handler {
 	return &Handler{
-		service:   service,
-		getUserID: resolver,
+		Service:       service,
+		ResolveUserID: resolver,
 	}
 }
 
-// RegisterRoutes registers courier-specific endpoints.
-//
-// IMPORTANT:
-// Apply authentication and courier-role middleware
-// to these routes in the application's main router.
+// RegisterRoutes registers all Courier endpoints.
+// The supplied mux should be wrapped with authentication and courier-role
+// middleware when it is mounted in the main application router.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/courier/orders", h.GetAssignedOrders)
-
-	mux.HandleFunc(
-		"GET /api/courier/orders/{id}",
-		h.GetOrderDetails,
-	)
-
-	mux.HandleFunc(
-		"PATCH /api/courier/orders/{id}/accept",
-		h.AcceptAssignment,
-	)
-
-	mux.HandleFunc(
-		"PATCH /api/courier/orders/{id}/decline",
-		h.DeclineAssignment,
-	)
-
-	mux.HandleFunc(
-		"PATCH /api/courier/orders/{id}/status",
-		h.UpdateOrderStatus,
-	)
+	mux.HandleFunc("GET /api/courier/orders/{id}", h.GetOrderDetails)
+	mux.HandleFunc("PATCH /api/courier/orders/{id}/accept", h.AcceptAssignment)
+	mux.HandleFunc("PATCH /api/courier/orders/{id}/decline", h.DeclineAssignment)
+	mux.HandleFunc("PATCH /api/courier/orders/{id}/status", h.UpdateOrderStatus)
 }
 
-// authenticatedCourierID gets the ID of the logged-in user
-// from the authentication middleware's request context.
 func (h *Handler) authenticatedCourierID(
 	w http.ResponseWriter,
 	r *http.Request,
 ) (int64, bool) {
 
-	if h.getUserID == nil {
-		writeError(
-			w,
-			http.StatusInternalServerError,
-			"authentication resolver is not configured",
-		)
+	if h.ResolveUserID == nil {
+		writeError(w, http.StatusInternalServerError, "authentication resolver is not configured")
 		return 0, false
 	}
 
-	id, err := h.getUserID(r)
-
-	if err != nil || id <= 0 {
-		writeError(
-			w,
-			http.StatusUnauthorized,
-			"authentication required",
-		)
+	userID, err := h.ResolveUserID(r)
+	if err != nil || userID <= 0 {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return 0, false
 	}
 
-	return id, true
+	return userID, true
 }
 
-// parseOrderID reads the order ID from the URL.
-func parseOrderID(r *http.Request) (int64, error) {
-	id, err := strconv.ParseInt(
-		r.PathValue("id"),
-		10,
-		64,
-	)
-
-	if err != nil || id <= 0 {
-		return 0, ErrInvalidInput
-	}
-
-	return id, nil
-}
-
-// GET /api/courier/orders
 func (h *Handler) GetAssignedOrders(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-
 	courierID, ok := h.authenticatedCourierID(w, r)
 	if !ok {
 		return
 	}
 
-	orders, err := h.service.GetAssignedOrders(
-		r.Context(),
-		courierID,
-	)
-
+	orders, err := h.Service.GetAssignedOrders(r.Context(), courierID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -127,12 +75,10 @@ func (h *Handler) GetAssignedOrders(
 	})
 }
 
-// GET /api/courier/orders/{id}
 func (h *Handler) GetOrderDetails(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-
 	courierID, ok := h.authenticatedCourierID(w, r)
 	if !ok {
 		return
@@ -140,16 +86,15 @@ func (h *Handler) GetOrderDetails(
 
 	orderID, err := parseOrderID(r)
 	if err != nil {
-		writeServiceError(w, err)
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	order, err := h.service.GetOrderDetails(
+	order, err := h.Service.GetOrderDetails(
 		r.Context(),
 		courierID,
 		orderID,
 	)
-
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -161,7 +106,6 @@ func (h *Handler) GetOrderDetails(
 	})
 }
 
-// PATCH /api/courier/orders/{id}/accept
 func (h *Handler) AcceptAssignment(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -169,7 +113,6 @@ func (h *Handler) AcceptAssignment(
 	h.respondToAssignment(w, r, true)
 }
 
-// PATCH /api/courier/orders/{id}/decline
 func (h *Handler) DeclineAssignment(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -182,7 +125,6 @@ func (h *Handler) respondToAssignment(
 	r *http.Request,
 	accept bool,
 ) {
-
 	courierID, ok := h.authenticatedCourierID(w, r)
 	if !ok {
 		return
@@ -190,22 +132,14 @@ func (h *Handler) respondToAssignment(
 
 	orderID, err := parseOrderID(r)
 	if err != nil {
-		writeServiceError(w, err)
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if accept {
-		err = h.service.AcceptAssignment(
-			r.Context(),
-			courierID,
-			orderID,
-		)
+		err = h.Service.AcceptAssignment(r.Context(), courierID, orderID)
 	} else {
-		err = h.service.DeclineAssignment(
-			r.Context(),
-			courierID,
-			orderID,
-		)
+		err = h.Service.DeclineAssignment(r.Context(), courierID, orderID)
 	}
 
 	if err != nil {
@@ -214,7 +148,6 @@ func (h *Handler) respondToAssignment(
 	}
 
 	message := "Assignment declined successfully"
-
 	if accept {
 		message = "Assignment accepted successfully"
 	}
@@ -224,12 +157,10 @@ func (h *Handler) respondToAssignment(
 	})
 }
 
-// PATCH /api/courier/orders/{id}/status
 func (h *Handler) UpdateOrderStatus(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-
 	courierID, ok := h.authenticatedCourierID(w, r)
 	if !ok {
 		return
@@ -237,45 +168,35 @@ func (h *Handler) UpdateOrderStatus(
 
 	orderID, err := parseOrderID(r)
 	if err != nil {
-		writeServiceError(w, err)
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Limit the request body to 1 MB.
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var request CourierStatusUpdateRequest
 
-	var req CourierStatusUpdateRequest
-
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(
+		http.MaxBytesReader(w, r.Body, 1<<20),
+	)
 	decoder.DisallowUnknownFields()
 
-	if err := decoder.Decode(&req); err != nil {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"invalid JSON request body",
-		)
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	// Reject additional JSON values after the first object.
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"request must contain one JSON object",
-		)
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "request must contain only one JSON object")
 		return
 	}
 
-	err = h.service.UpdateOrderStatus(
+	err = h.Service.UpdateOrderStatus(
 		r.Context(),
 		courierID,
 		orderID,
-		req.Status,
-		req.Notes,
+		request.Status,
+		request.Notes,
 	)
-
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -286,46 +207,44 @@ func (h *Handler) UpdateOrderStatus(
 	})
 }
 
-// Maps service and repository errors to HTTP responses.
+func parseOrderID(r *http.Request) (int64, error) {
+	rawID := strings.TrimSpace(r.PathValue("id"))
+
+	orderID, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || orderID <= 0 {
+		return 0, errors.New("invalid order ID")
+	}
+
+	return orderID, nil
+}
+
 func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidInput):
-		writeError(w, http.StatusBadRequest, "invalid request")
+		writeError(w, http.StatusBadRequest, err.Error())
 
 	case errors.Is(err, ErrNotFound):
-		writeError(w, http.StatusNotFound, "order or assignment not found")
+		writeError(w, http.StatusNotFound, "assignment or order not found")
 
 	case errors.Is(err, ErrInvalidAssignment),
-		errors.Is(err, ErrInvalidTransition):
+		errors.Is(err, ErrInvalidTransition),
+		errors.Is(err, ErrNotAccepted),
+		errors.Is(err, ErrOrderNotAssignable):
 		writeError(w, http.StatusConflict, err.Error())
 
 	default:
-		// Do not expose internal database errors to clients.
-		writeError(
-			w,
-			http.StatusInternalServerError,
-			"an internal server error occurred",
-		)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 	}
 }
 
-func writeError(
-	w http.ResponseWriter,
-	status int,
-	message string,
-) {
-	writeJSON(w, status, map[string]string{
-		"error": message,
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, APIResponse{
+		Message: message,
 	})
 }
 
-func writeJSON(
-	w http.ResponseWriter,
-	status int,
-	data any,
-) {
+func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-
 	_ = json.NewEncoder(w).Encode(data)
 }

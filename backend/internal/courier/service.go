@@ -3,64 +3,64 @@ package courier
 
 import (
 	"context"
-	"errors"
 	"strings"
 )
 
-var (
-	ErrInvalidInput = errors.New("invalid input")
-)
-
 type Service struct {
-	repo *Repository
+	Repo *Repository
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{
-		repo: repo,
-	}
+	return &Service{Repo: repo}
 }
 
-// GetAssignedOrders returns the authenticated courier's
-// pending and accepted assignments.
+// GetAssignedOrders returns all active assignments for a courier.
 func (s *Service) GetAssignedOrders(
 	ctx context.Context,
 	courierID int64,
 ) ([]CourierAssignedOrder, error) {
 
-	if courierID <= 0 {
-		return nil, ErrInvalidInput
+	if err := ValidateCourierID(courierID); err != nil {
+		return nil, err
 	}
 
-	return s.repo.GetAssignedOrders(ctx, courierID)
+	return s.Repo.GetAssignedOrders(ctx, courierID)
 }
 
-// GetOrderDetails returns an order assigned to the courier.
+// GetOrderDetails returns the details of one order assigned to the courier.
 func (s *Service) GetOrderDetails(
 	ctx context.Context,
 	courierID int64,
 	orderID int64,
 ) (*CourierAssignedOrder, error) {
 
-	if courierID <= 0 || orderID <= 0 {
-		return nil, ErrInvalidInput
+	if err := ValidateCourierID(courierID); err != nil {
+		return nil, err
 	}
 
-	return s.repo.GetOrderDetails(ctx, courierID, orderID)
+	if err := ValidateOrderID(orderID); err != nil {
+		return nil, err
+	}
+
+	return s.Repo.GetOrderDetails(ctx, courierID, orderID)
 }
 
-// AcceptAssignment accepts a pending courier assignment.
+// AcceptAssignment accepts a pending assignment.
 func (s *Service) AcceptAssignment(
 	ctx context.Context,
 	courierID int64,
 	orderID int64,
 ) error {
 
-	if courierID <= 0 || orderID <= 0 {
-		return ErrInvalidInput
+	if err := ValidateCourierID(courierID); err != nil {
+		return err
 	}
 
-	return s.repo.RespondToAssignment(
+	if err := ValidateOrderID(orderID); err != nil {
+		return err
+	}
+
+	return s.Repo.RespondToAssignment(
 		ctx,
 		courierID,
 		orderID,
@@ -68,18 +68,22 @@ func (s *Service) AcceptAssignment(
 	)
 }
 
-// DeclineAssignment declines a pending courier assignment.
+// DeclineAssignment declines a pending assignment.
 func (s *Service) DeclineAssignment(
 	ctx context.Context,
 	courierID int64,
 	orderID int64,
 ) error {
 
-	if courierID <= 0 || orderID <= 0 {
-		return ErrInvalidInput
+	if err := ValidateCourierID(courierID); err != nil {
+		return err
 	}
 
-	return s.repo.RespondToAssignment(
+	if err := ValidateOrderID(orderID); err != nil {
+		return err
+	}
+
+	return s.Repo.RespondToAssignment(
 		ctx,
 		courierID,
 		orderID,
@@ -87,56 +91,39 @@ func (s *Service) DeclineAssignment(
 	)
 }
 
-// UpdateOrderStatus updates the delivery progress.
-//
-// Allowed transitions:
-// assigned  -> picked_up
-// picked_up -> in_transit
-// in_transit -> delivered
+// UpdateOrderStatus updates the delivery lifecycle status.
 func (s *Service) UpdateOrderStatus(
 	ctx context.Context,
 	courierID int64,
 	orderID int64,
-	newStatus string,
+	status string,
 	notes string,
 ) error {
 
-	if courierID <= 0 || orderID <= 0 {
-		return ErrInvalidInput
+	if err := ValidateCourierID(courierID); err != nil {
+		return err
 	}
 
-	newStatus = strings.ToLower(strings.TrimSpace(newStatus))
+	if err := ValidateOrderID(orderID); err != nil {
+		return err
+	}
+
+	status = strings.ToLower(strings.TrimSpace(status))
 	notes = strings.TrimSpace(notes)
 
-	switch newStatus {
-	case OrderPickedUp, OrderInTransit, OrderDelivered:
-		// These are the only statuses a courier can set.
-	default:
-		return ErrInvalidInput
+	if err := ValidateOrderStatus(status); err != nil {
+		return err
 	}
 
-	return s.repo.UpdateCourierOrderStatus(
+	if err := ValidateStatusNotes(notes); err != nil {
+		return err
+	}
+
+	return s.Repo.UpdateCourierOrderStatus(
 		ctx,
 		courierID,
 		orderID,
-		newStatus,
+		status,
 		notes,
 	)
-}
-
-// isValidTransition checks the allowed shipment lifecycle.
-func isValidTransition(oldStatus, newStatus string) bool {
-	switch oldStatus {
-	case OrderAssigned:
-		return newStatus == OrderPickedUp
-
-	case OrderPickedUp:
-		return newStatus == OrderInTransit
-
-	case OrderInTransit:
-		return newStatus == OrderDelivered
-
-	default:
-		return false
-	}
 }
