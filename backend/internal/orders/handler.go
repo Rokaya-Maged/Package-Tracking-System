@@ -1,10 +1,13 @@
 package orders
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"tracking-system/internal/middleware"
 )
 
 type OrderHandler struct {
@@ -65,6 +68,23 @@ func (h *OrderHandler) CreateOrderHandler(res http.ResponseWriter, req *http.Req
 		http.Error(res, "Invalid request body", http.StatusBadRequest)
 		return
 	}
+	user, ok := middleware.GetUser(req)
+
+	if !ok {
+		http.Error(res, "Login required", http.StatusUnauthorized)
+		return
+	}
+
+	order.BusinessUserID = user.ID
+
+	randomBytes := make([]byte, 8)
+	if _, err := rand.Read(randomBytes); err != nil {
+		http.Error(res, "Could not generate tracking number", http.StatusInternalServerError)
+		return
+	}
+
+	order.TrackingNumber = "WAS-" + hex.EncodeToString(randomBytes)
+	order.DeliveryFee = 50
 
 	err = h.Service.AddOrder(&order)
 	if err != nil {
