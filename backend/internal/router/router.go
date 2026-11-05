@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"net/http"
 
 	"tracking-system/internal/assignOrder"
@@ -14,8 +15,6 @@ func New(
 	orderService *orders.OrderService,
 	assignmentService *assignOrder.AssignmentService,
 	courierService *courier.Service,
-	resolveUserID courier.UserIDResolver,
-
 ) http.Handler {
 
 	mux := http.NewServeMux()
@@ -40,8 +39,17 @@ func New(
 	mux.Handle("/api/assignments/", middleware.RequireAuth(middleware.RequireRole("admin", assignmentHandler)))
 
 	// Courier routes
-	courierHandler := courier.New(courierService, resolveUserID)
-	mux.Handle("/api/courier/", courierHandler)
+	courierHandler := courier.New(courierService, func(r *http.Request) (int64, error) {
+		user, ok := middleware.GetUser(r)
+		if !ok {
+			return 0, errors.New("authenticated user not found")
+		}
+		return user.ID, nil
+	})
+	mux.Handle(
+		"/api/courier/",
+		middleware.RequireAuth(middleware.RequireRole("courier", courierHandler)),
+	)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
