@@ -326,3 +326,41 @@ func (r *AssignmentRepository) GetAssignmentsByStatus(status string) ([]Assignme
 
 	return assignments, nil
 }
+
+// get couriers
+func (r *AssignmentRepository) GetCouriers() ([]Courier, error) {
+	query := `
+		SELECT id, full_name
+		FROM users
+		WHERE role = 'courier'
+		ORDER BY full_name;
+	`
+
+	rows, err := r.DB.Query(context.Background(), query)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve couriers: %w", err)
+	}
+	defer rows.Close()
+
+	var couriers []Courier
+
+	for rows.Next() {
+		var courier Courier
+
+		err := rows.Scan(
+			&courier.ID,
+			&courier.FullName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan courier: %w", err)
+		}
+
+		couriers = append(couriers, courier)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read couriers: %w", err)
+	}
+
+	return couriers, nil
+}

@@ -1,6 +1,5 @@
 package assignOrder
 
-
 import (
 	"net/http"
 )
@@ -22,6 +21,8 @@ func New(service *AssignmentService) http.Handler {
 	mux.HandleFunc("GET /api/assignments/courier/{courier_id}", handler.GetAssignmentsByCourierID)
 
 	mux.HandleFunc("GET /api/assignments/status", handler.GetAssignmentsByStatus)
+
+	mux.HandleFunc("GET /api/couriers", handler.GetAllCouriersHandler)
 
 	return mux
 }

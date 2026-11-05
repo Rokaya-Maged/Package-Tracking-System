@@ -164,3 +164,18 @@ func (h *AssignmentHandler) GetAssignmentsByStatus(res http.ResponseWriter, req 
 	res.WriteHeader(http.StatusOK)
 	json.NewEncoder(res).Encode(assignments)
 }
+
+
+
+// get all couriers handler
+func (h *AssignmentHandler) GetAllCouriersHandler(res http.ResponseWriter, req *http.Request) {
+	couriers, err := h.Service.GetAllCouriers()
+	if err != nil {
+		handleAssignmentError(res, err)
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	json.NewEncoder(res).Encode(couriers)
+}

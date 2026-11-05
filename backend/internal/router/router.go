@@ -37,6 +37,7 @@ func New(
 	assignmentHandler := assignOrder.New(assignmentService)
 	mux.Handle("/api/assignments", middleware.RequireAuth(middleware.RequireRole("admin", assignmentHandler)))
 	mux.Handle("/api/assignments/", middleware.RequireAuth(middleware.RequireRole("admin", assignmentHandler)))
+	mux.Handle("GET /api/couriers", middleware.RequireAuth(middleware.RequireRole("admin", assignmentHandler)))
 
 	// Courier routes
 	courierHandler := courier.New(courierService, func(r *http.Request) (int64, error) {

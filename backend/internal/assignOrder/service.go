@@ -109,3 +109,8 @@ func (s *AssignmentService) GetAssignmentsByStatus(status string) ([]Assignment,
 
 	return s.Repo.GetAssignmentsByStatus(status)
 }
+
+// get all couriers
+func (s *AssignmentService) GetAllCouriers() ([]Courier, error) {
+	return s.Repo.GetCouriers()
+}
