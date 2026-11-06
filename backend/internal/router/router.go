@@ -25,6 +25,13 @@ func New(
 
 	// Orders routes
 	orderHandler := orders.New(orderService)
+	cancelHandler := &orders.OrderHandler{Service: orderService}
+	mux.Handle(
+		"PATCH /api/orders/{id}/cancel",
+		middleware.RequireAuth(
+			middleware.RequireRole("business", http.HandlerFunc(cancelHandler.CancelOrderHandler)),
+		),
+	)
 	mux.Handle("/api/orders", orderHandler)
 	mux.Handle("/api/orders/", orderHandler)
 	mux.Handle("POST /api/orders", middleware.RequireAuth(middleware.RequireRole("business", orderHandler)))

@@ -64,7 +64,7 @@ func (s *OrderService) UpdateOrderStatus(id int, status string) error {
 		"delivered":  true,
 		"cancelled":  true,
 	}
-	
+
 	if !validStatuses[status] {
 		return ErrInvalidOrderStatus
 	}
@@ -92,4 +92,13 @@ func (s *OrderService) DeleteOrder(id int) error {
 	}
 
 	return err
+}
+
+// cancel a pending order
+func (s *OrderService) CancelPendingOrder(id int, businessUserID int64) (bool, error) {
+	if id <= 0 {
+		return false, errors.New("invalid order ID")
+	}
+
+	return s.Repo.CancelPendingOrder(id, businessUserID)
 }

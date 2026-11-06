@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"tracking-system/internal/middleware"
 )
 
 type AssignmentHandler struct {
@@ -42,7 +43,7 @@ func (h *AssignmentHandler) AssignOrderToCourierHandler(res http.ResponseWriter,
 	var request struct {
 		OrderID    int `json:"order_id"`
 		CourierID  int `json:"courier_id"`
-		AssignedBy int `json:"assigned_by"`
+		
 	}
 
 	err := json.NewDecoder(req.Body).Decode(&request)
@@ -52,7 +53,13 @@ func (h *AssignmentHandler) AssignOrderToCourierHandler(res http.ResponseWriter,
 		return
 	}
 
-	err = h.Service.AssignOrderToCourier(request.OrderID, request.CourierID, request.AssignedBy)
+	user, ok := middleware.GetUser(req)
+if !ok || user.Role != "admin" {
+    http.Error(res, "Access denied", http.StatusForbidden)
+    return
+}
+
+err = h.Service.AssignOrderToCourier(request.OrderID, request.CourierID, int(user.ID))
 	if err != nil {
 		handleAssignmentError(res, err)
 		return
@@ -65,7 +72,7 @@ func (h *AssignmentHandler) ReassignOrderToCourierHandler(res http.ResponseWrite
 	var request struct {
 		OrderID      int `json:"order_id"`
 		NewCourierID int `json:"new_courier_id"`
-		AssignedBy   int `json:"assigned_by"`
+		
 	}
 
 	err := json.NewDecoder(req.Body).Decode(&request)
@@ -74,7 +81,13 @@ func (h *AssignmentHandler) ReassignOrderToCourierHandler(res http.ResponseWrite
 		return
 	}
 
-	err = h.Service.ReassignOrderToCourier(request.OrderID, request.NewCourierID, request.AssignedBy)
+	user, ok := middleware.GetUser(req)
+if !ok || user.Role != "admin" {
+    http.Error(res, "Access denied", http.StatusForbidden)
+    return
+}
+
+err = h.Service.ReassignOrderToCourier(request.OrderID, request.NewCourierID, int(user.ID))
 	if err != nil {
 		handleAssignmentError(res, err)
 		return

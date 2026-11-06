@@ -192,3 +192,37 @@ func (h *OrderHandler) DeleteOrderHandler(res http.ResponseWriter, req *http.Req
 		"message": "Order deleted successfully",
 	})
 }
+func (h *OrderHandler) CancelOrderHandler(res http.ResponseWriter, req *http.Request) {
+	user, ok := middleware.GetUser(req)
+	if !ok {
+		http.Error(res, "Login required", http.StatusUnauthorized)
+		return
+	}
+
+	if user.Role != "business" {
+		http.Error(res, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	id, err := strconv.Atoi(req.PathValue("id"))
+	if err != nil || id <= 0 {
+		http.Error(res, "Invalid order ID", http.StatusBadRequest)
+		return
+	}
+
+	cancelled, err := h.Service.CancelPendingOrder(id, user.ID)
+	if err != nil {
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !cancelled {
+		http.Error(res, "Order not found or cannot be cancelled", http.StatusConflict)
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(map[string]string{
+		"message": "Order cancelled successfully",
+	})
+}

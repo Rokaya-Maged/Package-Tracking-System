@@ -79,15 +79,31 @@ func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 }
 
 // get order by id
+// get order by id with courier information
 func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 	query := `
-        SELECT id, tracking_number, business_user_id, customer_name, customer_phone,
-               pickup_address, dropoff_address, delivery_notes, package_description,
-               package_weight_kg, preferred_delivery_at, item_price, delivery_fee,
-               delivery_fee_payer, payment_type, total_customer_price, cod_amount,
-               cod_collected_at, status, created_at, updated_at
-		FROM orders
-		WHERE orders.id = $1
+		SELECT o.id, o.tracking_number, o.business_user_id,
+		       o.customer_name, o.customer_phone,
+		       o.pickup_address, o.dropoff_address,
+		       o.delivery_notes, o.package_description,
+		       o.package_weight_kg, o.preferred_delivery_at,
+		       o.item_price, o.delivery_fee,
+		       o.delivery_fee_payer, o.payment_type,
+		       o.total_customer_price, o.cod_amount,
+		       o.cod_collected_at, o.status,
+		       o.created_at, o.updated_at,
+		       courier.full_name, courier.phone
+		FROM orders o
+		LEFT JOIN LATERAL (
+			SELECT u.full_name, u.phone
+			FROM courier_assignments ca
+			JOIN users u ON u.id = ca.courier_id
+			WHERE ca.order_id = o.id
+			  AND ca.status IN ('pending', 'accepted')
+			ORDER BY ca.assigned_at DESC, ca.id DESC
+			LIMIT 1
+		) courier ON TRUE
+		WHERE o.id = $1
 	`
 
 	var order Order
@@ -114,7 +130,10 @@ func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 		&order.Status,
 		&order.CreatedAt,
 		&order.UpdatedAt,
+		&order.CourierName,
+		&order.CourierPhone,
 	)
+
 	if err != nil {
 		return nil, err
 	}
@@ -222,4 +241,21 @@ func (r *OrderRepository) DeleteOrder(id int) error {
 	}
 
 	return nil
+}
+func (r *OrderRepository) CancelPendingOrder(id int, businessUserID int64) (bool, error) {
+	query := `
+		UPDATE orders
+		SET status = 'cancelled', updated_at = NOW()
+		WHERE id = $1
+		  AND business_user_id = $2
+		  AND status = 'pending'
+	`
+
+	result, err := r.DB.Exec(context.Background(), query, id, businessUserID)
+
+	if err != nil {
+		return false, err
+	}
+
+	return result.RowsAffected() == 1, nil
 }

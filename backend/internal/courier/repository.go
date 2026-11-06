@@ -1,4 +1,3 @@
-
 package courier
 
 import (
@@ -254,6 +253,17 @@ func (r *Repository) RespondToAssignment(
 	_, err = tx.Exec(ctx, updateQuery, newStatus, assignmentID)
 	if err != nil {
 		return fmt.Errorf("respond to assignment: %w", err)
+	}
+	if newStatus == AssignmentDeclined {
+		_, err = tx.Exec(ctx, `
+        UPDATE orders
+        SET status = 'pending', updated_at = NOW()
+        WHERE id = $1 AND status = 'assigned'
+    `, orderID)
+
+		if err != nil {
+			return fmt.Errorf("reset order status: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
