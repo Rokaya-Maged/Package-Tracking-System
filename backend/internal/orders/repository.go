@@ -78,8 +78,7 @@ func (r *OrderRepository) GetAllOrders() ([]Order, error) {
 	return orders, nil
 }
 
-// get order by id
-// get order by id with courier information
+
 func (r *OrderRepository) GetOrderByID(id int) (*Order, error) {
 	query := `
 		SELECT o.id, o.tracking_number, o.business_user_id,
